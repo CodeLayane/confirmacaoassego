@@ -1,142 +1,35 @@
 <?php
-if (session_status() === PHP_SESSION_NONE) session_start();
-require_once 'config.php';
-checkLogin();
-$pdo = getConnection();
-
-$format        = $_GET['format'] ?? 'excel';
-$cidade_filter = $_GET['cidade'] ?? '';
-$status_filter = $_GET['status'] ?? '';
-$data_inicio   = $_GET['data_inicio'] ?? '';
-$data_fim      = $_GET['data_fim'] ?? '';
-
-$sql = "SELECT m.id, m.nome, m.whatsapp, m.instagram, m.endereco, m.cidade, m.estado, m.cep, m.observacoes, m.ativo, m.created_at
-        FROM membros m WHERE m.aprovado = 1";
-$params = [];
-if ($cidade_filter)           { $sql .= " AND m.cidade = ?";    $params[] = $cidade_filter; }
-if ($status_filter === 'ativo')   $sql .= " AND (m.ativo IS NULL OR m.ativo = 1)";
-if ($status_filter === 'inativo') $sql .= " AND m.ativo = 0";
-if ($data_inicio && $data_fim) {
-    $sql .= " AND DATE(m.created_at) BETWEEN ? AND ?";
-    $params[] = $data_inicio; $params[] = $data_fim;
-}
-$sql .= " ORDER BY m.nome";
-$stmt = $pdo->prepare($sql); $stmt->execute($params);
-$membros = $stmt->fetchAll();
-
-$total_ativos = $total_inativos = 0;
-foreach ($membros as $m) { if ($m['ativo'] ?? 1) $total_ativos++; else $total_inativos++; }
-
-if ($format == 'excel') {
-    header("Content-Type: application/vnd.ms-excel");
-    header("Content-Disposition: attachment; filename=\"alunos_remileal_" . date('Y-m-d') . ".xls\"");
-    header("Pragma: no-cache"); header("Expires: 0");
-    echo "\xEF\xBB\xBF";
-    echo "<table border='1'>";
-    echo "<tr style='background:#1e40af;color:white;font-weight:bold;'>";
-    echo "<th>N</th><th>Nome</th><th>WhatsApp</th><th>Instagram</th><th>Endereco</th><th>Cidade</th><th>Estado</th><th>CEP</th><th>Status</th><th>Cadastro</th><th>Observacoes</th>";
-    echo "</tr>";
-    $i = 1;
-    foreach ($membros as $m) {
-        $status = ($m['ativo'] ?? 1) ? 'Ativo' : 'Inativo';
-        $insta  = !empty($m['instagram']) ? '@' . ltrim($m['instagram'], '@') : '-';
-        $bg     = ($m['ativo'] ?? 1) ? '' : "style='background:#fff1f2;'";
-        echo "<tr $bg>";
-        echo "<td>".($i++)."</td>";
-        echo "<td>".htmlspecialchars($m['nome'])."</td>";
-        echo "<td>".htmlspecialchars($m['whatsapp'] ?? '-')."</td>";
-        echo "<td>".htmlspecialchars($insta)."</td>";
-        echo "<td>".htmlspecialchars($m['endereco'] ?? '-')."</td>";
-        echo "<td>".htmlspecialchars($m['cidade'] ?? '-')."</td>";
-        echo "<td>".htmlspecialchars($m['estado'] ?? '-')."</td>";
-        echo "<td>".htmlspecialchars($m['cep'] ?? '-')."</td>";
-        echo "<td>".$status."</td>";
-        echo "<td>".date('d/m/Y', strtotime($m['created_at']))."</td>";
-        echo "<td>".htmlspecialchars($m['observacoes'] ?? '')."</td>";
-        echo "</tr>";
-    }
-    echo "</table><br><table border='1'>";
-    echo "<tr style='background:#e0f2fe;'><td colspan='2'><strong>RESUMO</strong></td></tr>";
-    echo "<tr><td><strong>Total:</strong></td><td>".count($membros)."</td></tr>";
-    echo "<tr><td><strong>Ativos:</strong></td><td>$total_ativos</td></tr>";
-    echo "<tr><td><strong>Inativos:</strong></td><td>$total_inativos</td></tr>";
-    echo "<tr><td><strong>Gerado em:</strong></td><td>".date('d/m/Y H:i:s')."</td></tr>";
-    echo "</table>";
-
-} elseif ($format == 'pdf') { ?>
-<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
-<title>Relatorio de Alunos - RemiLeal</title>
-<style>
-@page{size:A4 landscape;margin:1cm}
-body{font-family:Arial,sans-serif;font-size:9pt;color:#333;margin:0;padding:0}
-.header{text-align:center;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid #1e40af}
-.header h1{color:#1e40af;font-size:18pt;margin:0 0 4px}
-.header p{color:#666;margin:0;font-size:9pt}
-.summary{background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:10px 16px;margin-bottom:16px;display:flex;gap:30px;flex-wrap:wrap}
-.summary p{margin:0}
-table{width:100%;border-collapse:collapse;margin-bottom:20px}
-th{background:#1e40af;color:white;padding:6px 8px;text-align:left;font-size:8pt}
-td{padding:5px 8px;border-bottom:1px solid #e5e7eb;font-size:8pt}
-tr:nth-child(even){background:#f8faff}
-.badge-ativo{background:#dcfce7;color:#16a34a;padding:2px 7px;border-radius:10px;font-weight:700;font-size:7.5pt}
-.badge-inativo{background:#fee2e2;color:#dc2626;padding:2px 7px;border-radius:10px;font-weight:700;font-size:7.5pt}
-.footer{text-align:center;font-size:8pt;color:#999;margin-top:20px;border-top:1px solid #e5e7eb;padding-top:8px}
-.no-print{margin:16px;text-align:center}
-.btn{background:#1e40af;color:white;padding:8px 18px;text-decoration:none;border-radius:5px;display:inline-block;margin:4px;font-family:Arial;font-size:10pt;border:none;cursor:pointer}
-@media print{.no-print{display:none}body{margin:0}tr{page-break-inside:avoid}}
-</style></head><body>
-<div class="no-print">
-    <button onclick="window.print()" class="btn">Imprimir / Salvar PDF</button>
-    <a href="relatorios.php" class="btn" style="background:#6b7280;">Voltar</a>
-    <p style="margin-top:8px;color:#666;font-size:10pt;">Para salvar como PDF: clique em Imprimir e selecione "Salvar como PDF"</p>
-</div>
-<div class="header">
-    <h1>RemiLeal - Prof. Ritmos</h1>
-    <p>Relatorio de Alunos - Gerado em <?php echo date('d/m/Y H:i'); ?></p>
-</div>
-<div class="summary">
-    <p><strong>Total:</strong> <?php echo count($membros); ?> alunos</p>
-    <p><strong>Ativos:</strong> <?php echo $total_ativos; ?></p>
-    <p><strong>Inativos:</strong> <?php echo $total_inativos; ?></p>
-    <?php if ($cidade_filter): ?><p><strong>Cidade:</strong> <?php echo htmlspecialchars($cidade_filter); ?></p><?php endif; ?>
-    <?php if ($data_inicio && $data_fim): ?><p><strong>Periodo:</strong> <?php echo date('d/m/Y',strtotime($data_inicio)); ?> a <?php echo date('d/m/Y',strtotime($data_fim)); ?></p><?php endif; ?>
-</div>
-<table>
-    <thead><tr>
-        <th width="3%">#</th>
-        <th width="22%">Nome</th>
-        <th width="13%">WhatsApp</th>
-        <th width="13%">Instagram</th>
-        <th width="20%">Endereco</th>
-        <th width="10%">Cidade/UF</th>
-        <th width="8%">Cadastro</th>
-        <th width="9%">Status</th>
-    </tr></thead>
-    <tbody>
-    <?php $i=1; foreach($membros as $m):
-        $status   = ($m['ativo'] ?? 1) ? 'Ativo' : 'Inativo';
-        $badgeCls = ($m['ativo'] ?? 1) ? 'badge-ativo' : 'badge-inativo';
-        $insta    = !empty($m['instagram']) ? '@'.ltrim($m['instagram'],'@') : '-';
-        $cidade_uf = trim(($m['cidade']??'').(($m['estado']??'') ? '/'.$m['estado'] : '')) ?: '-';
-    ?>
-        <tr>
-            <td><?php echo $i++; ?></td>
-            <td><strong><?php echo htmlspecialchars($m['nome']); ?></strong></td>
-            <td><?php echo htmlspecialchars($m['whatsapp']??'-'); ?></td>
-            <td><?php echo htmlspecialchars($insta); ?></td>
-            <td><?php echo htmlspecialchars($m['endereco']??'-'); ?></td>
-            <td><?php echo htmlspecialchars($cidade_uf); ?></td>
-            <td><?php echo date('d/m/Y',strtotime($m['created_at'])); ?></td>
-            <td><span class="<?php echo $badgeCls; ?>"><?php echo $status; ?></span></td>
-        </tr>
-    <?php endforeach; ?>
-    </tbody>
-</table>
-<div class="footer">
-    <p>RemiLeal - Prof. Ritmos | Gerado em <?php echo date('d/m/Y H:i:s'); ?></p>
-</div>
-<?php if(isset($_GET['autoprint']) && $_GET['autoprint']=='1'): ?>
-<script>window.onload=function(){window.print();}</script>
-<?php endif; ?>
+if(session_status()===PHP_SESSION_NONE)session_start();require_once 'config.php';checkLogin();$pdo=getConnection();
+$eid=$_SESSION['evento_atual']??0;if(!$eid)die('Selecione um evento.');
+$ev=$pdo->prepare("SELECT * FROM eventos WHERE id=?");$ev->execute([$eid]);$evento=$ev->fetch();if(!$evento)die('Evento?');
+$ce=json_decode($evento['campos_extras']??'[]',true)?:[];$format=$_GET['format']??'excel';
+$s=$pdo->prepare("SELECT * FROM participantes WHERE aprovado=1 AND evento_id=? ORDER BY nome");$s->execute([$eid]);$lista=$s->fetchAll();
+$ta=0;$ti=0;foreach($lista as $i){if($i['ativo']??1)$ta++;else $ti++;}
+if($format=='excel'){
+    header("Content-Type:application/vnd.ms-excel");header("Content-Disposition:attachment;filename=\"".preg_replace('/[^a-z0-9]/','_',strtolower($evento['nome']))."_".date('Y-m-d').".xls\"");
+    echo "\xEF\xBB\xBF<table border='1'><tr style='background:#1e40af;color:white;font-weight:bold'><th>#</th><th>Nome</th><th>WhatsApp</th><th>Instagram</th>";
+    foreach($ce as $c)echo "<th>".htmlspecialchars($c['label'])."</th>";
+    echo "<th>Cidade</th><th>Estado</th><th>Status</th><th>Cadastro</th></tr>";
+    $n=1;foreach($lista as $i){$ex=json_decode($i['campos_extras']??'{}',true)?:[];$st=($i['ativo']??1)?'Ativo':'Inativo';$bg=($i['ativo']??1)?'':"style='background:#fff1f2'";
+    echo "<tr $bg><td>$n</td><td>".htmlspecialchars($i['nome'])."</td><td>".htmlspecialchars($i['whatsapp']??'-')."</td><td>".(!empty($i['instagram'])?'@'.htmlspecialchars(ltrim($i['instagram'],'@')):'-')."</td>";
+    foreach($ce as $c)echo "<td>".htmlspecialchars($ex[$c['nome']]??'-')."</td>";
+    echo "<td>".htmlspecialchars($i['cidade']??'-')."</td><td>".htmlspecialchars($i['estado']??'-')."</td><td>$st</td><td>".date('d/m/Y',strtotime($i['created_at']))."</td></tr>";$n++;}
+    echo "</table><br><table border='1'><tr style='background:#e0f2fe'><td colspan='2'><strong>RESUMO — ".htmlspecialchars($evento['nome'])."</strong></td></tr><tr><td>Total:</td><td>".count($lista)."</td></tr><tr><td>Ativos:</td><td>$ta</td></tr><tr><td>Inativos:</td><td>$ti</td></tr><tr><td>Gerado:</td><td>".date('d/m/Y H:i')."</td></tr></table>";
+}elseif($format=='pdf'){?>
+<!DOCTYPE html><html><head><meta charset="UTF-8"><title><?=htmlspecialchars($evento['nome'])?></title>
+<style>@page{size:A4 landscape;margin:1cm}body{font-family:Arial,sans-serif;font-size:9pt;color:#333;margin:0}.header{text-align:center;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid #1e40af}.header h1{color:#1e40af;font-size:16pt;margin:0}.header p{color:#666;font-size:9pt;margin:4px 0 0}.summary{background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:10px 16px;margin-bottom:16px;display:flex;gap:30px}.summary p{margin:0}table{width:100%;border-collapse:collapse}th{background:#1e40af;color:white;padding:6px 8px;font-size:8pt;text-align:left}td{padding:5px 8px;border-bottom:1px solid #e5e7eb;font-size:8pt}tr:nth-child(even){background:#f8faff}.no-print{margin:16px;text-align:center}.btn{background:#1e40af;color:white;padding:8px 18px;text-decoration:none;border-radius:5px;display:inline-block;margin:4px;border:none;cursor:pointer}@media print{.no-print{display:none}}</style></head><body>
+<div class="no-print"><button onclick="window.print()" class="btn">Imprimir / PDF</button> <a href="relatorios.php" class="btn" style="background:#6b7280">Voltar</a></div>
+<div class="header"><h1>ASSEGO — <?=htmlspecialchars($evento['nome'])?></h1><p>Relatório — <?=date('d/m/Y H:i')?></p></div>
+<div class="summary"><p><strong>Total:</strong> <?=count($lista)?></p><p><strong>Ativos:</strong> <?=$ta?></p><p><strong>Inativos:</strong> <?=$ti?></p></div>
+<table><thead><tr><th>#</th><th>Nome</th><th>WhatsApp</th><th>Instagram</th>
+<?php foreach($ce as $c):?><th><?=htmlspecialchars($c['label'])?></th><?php endforeach;?>
+<th>Cidade/UF</th><th>Status</th><th>Cadastro</th></tr></thead><tbody>
+<?php $n=1;foreach($lista as $i):$ex=json_decode($i['campos_extras']??'{}',true)?:[];?>
+<tr><td><?=$n++?></td><td><strong><?=htmlspecialchars($i['nome'])?></strong></td><td><?=htmlspecialchars($i['whatsapp']??'-')?></td><td><?=!empty($i['instagram'])?'@'.htmlspecialchars(ltrim($i['instagram'],'@')):'-'?></td>
+<?php foreach($ce as $c):?><td><?=htmlspecialchars($ex[$c['nome']]??'-')?></td><?php endforeach;?>
+<td><?=htmlspecialchars(($i['cidade']??'').($i['estado']?'/'.$i['estado']:''))?></td>
+<td><?=($i['ativo']??1)?'Ativo':'Inativo'?></td><td><?=date('d/m/Y',strtotime($i['created_at']))?></td></tr>
+<?php endforeach;?></tbody></table>
+<div style="text-align:center;font-size:8pt;color:#999;margin-top:16px;border-top:1px solid #e5e7eb;padding-top:8px">ASSEGO | <?=htmlspecialchars($evento['nome'])?> | <?=date('d/m/Y H:i:s')?></div>
 </body></html>
-<?php } ?>
+<?php }?>
